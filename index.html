@@ -1,0 +1,291 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+    <title>B-haviuor</title>
+    <script type="text/javascript" src="fabric.js"></script>
+</head>
+
+<body>
+<div>
+<table onkeyup="draw()" style="width:50em">
+    <tr>
+        <td style="width:5%">Classes</td>
+        <td><input style="width: 99%" id="classes", type="text", value="Good, Bad, Cheeky, *Sly"></td>
+        <td style="width:5%">Density</td> 
+        <td style="width:5%"><input style="width: 90%" id="classes_density", type="text", value="0.5"></td> 
+        <td style="width:5%">Skew</td> 
+        <td style="width:5%"><input style="width: 90%" id="classes_skew", type="text", value="0.9"></td> 
+        <td style="width:5%">Jump</td> 
+        <td style="width:5%"><input style="width: 90%" id="classes_jump", type="text", value="0.1"></td> 
+    </tr>
+    <tr>
+        <td style="width:5%">Degrees</td>
+        <td><input style="width: 99%" id="degrees", type="text", value="Homid, Glabro, *Crinos, Hispo, Lupus"></td>
+        <td style="width:5%">Density</td> 
+        <td style="width:5%"><input style="width: 90%" id="degrees_density", type="text", value="0.8"></td>
+        <td style="width:5%">Skew</td> 
+        <td style="width:5%"><input style="width: 90%" id="degrees_skew", type="text", value="0.9"></td> 
+    </tr>
+    <tr>
+        <td>Central</td>
+        <td><input style="width: 99%" id="central_degree", type="text", value="Frenzy"></td>
+    </tr>
+    <tr>
+        <td colspan=7>Comma-separated, * in the beginning of name means primary class/degree</td>
+    </tr>
+</table>
+
+<p><button type="button" onclick="draw()">Re-generate</button></p>
+
+<p><canvas id="c" width="100%" height="100%"/></p>
+</div>
+
+<script>
+var htmlCanvas = document.getElementById('c');
+var ctx = htmlCanvas.getContext('2d');
+var WIDTH = window.innerWidth*0.8;
+var HEIGHT = window.innerHeight*0.8;
+var SCALE = Math.min(WIDTH, HEIGHT)-5;
+ctx.canvas.width = WIDTH;
+ctx.canvas.height = HEIGHT;    
+
+function readArrayInput(type) {
+    var els = [];    
+    document.getElementById(type).value.split(",").forEach(function(el) {
+      els.push(el.trim());
+    });
+    return els;
+}
+
+function hsvToRgb(h, s, v) {
+    var r, g, b, i, f, p, q, t;
+    if (arguments.length === 1) {
+        s = h.s, v = h.v, h = h.h;
+    }
+    i = Math.floor(h * 6);
+    f = h * 6 - i;
+    p = v * (1 - s);
+    q = v * (1 - f * s);
+    t = v * (1 - (1 - f) * s);
+    switch (i % 6) {
+        case 0: r = v, g = t, b = p; break;
+        case 1: r = q, g = v, b = p; break;
+        case 2: r = p, g = v, b = t; break;
+        case 3: r = p, g = q, b = v; break;
+        case 4: r = t, g = p, b = v; break;
+        case 5: r = v, g = p, b = q; break;
+    }
+    return {
+        r: Math.round(r * 255),
+        g: Math.round(g * 255),
+        b: Math.round(b * 255)
+    };
+}
+
+function generateGraph({
+    classesNumber, primaryClasses, primaryClassesConnectionSkew, classesConnectionDensity, classesInterhops,
+    degreesNumber, primaryDegrees, primaryDegreesConnectionSkew, degreesConnectionDensity
+    }={}) {
+    var classesConnectivityMatrix = [];
+    for (var classId = 0; classId < classesNumber; classId++) {
+        var currentConnectivities = [];
+        classesConnectivityMatrix.push(currentConnectivities);
+        for (var degreeId = 0; degreeId < degreesNumber; degreeId++) {
+            var connectionProbability = classesConnectionDensity;
+            var currentConnectivity = [];
+            currentConnectivities.push(currentConnectivity);
+            if (primaryClasses.includes(classId) || primaryClasses.includes((classId+1) % classesNumber)) {
+                connectionProbability = 1 - (1 - connectionProbability)*(1 - primaryClassesConnectionSkew);
+            }
+            if (Math.random() < connectionProbability) {
+                currentConnectivity.push((classId+1) % classesNumber);
+            }
+            
+            for (var interClassId = 0; interClassId < classesNumber; interClassId++) {
+                var interConnectionProbability = classesInterhops;
+                if (primaryClasses.includes(classId)) {
+                    interConnectionProbability = 1 - (1 - interConnectionProbability)*(1 - primaryClassesConnectionSkew);
+                }
+                if (Math.random() < interConnectionProbability) {
+                    if (!currentConnectivity.includes(interClassId) && interClassId != classId) {
+                        currentConnectivity.push(interClassId);
+                    }
+                }
+            }
+        }
+    }
+    
+    var degreesConnectivityMatrix = [];
+    for (var classId = 0; classId < classesNumber; classId++) {
+        var currentConnectivities = [];
+        degreesConnectivityMatrix.push(currentConnectivities);
+        for (var degreeId = 0; degreeId < degreesNumber; degreeId++) {
+            var connectionProbability = degreesConnectionDensity;
+            var currentConnectivity = [];
+            currentConnectivities.push(currentConnectivity);
+            if (primaryDegrees.includes(degreeId) || primaryDegrees.includes(degreeId+1)) {
+                connectionProbability = 1 - (1 - connectionProbability)*(1 - primaryClassesConnectionSkew)
+            } 
+            if (Math.random() < connectionProbability) {
+                if (degreeId+1 < degreesNumber) {
+                    currentConnectivity.push(degreeId+1);
+                }
+            }
+        }
+    }
+    
+    return {degreesConnectivityMatrix: degreesConnectivityMatrix, classesConnectivityMatrix:classesConnectivityMatrix};
+}
+
+function draw() {    
+    var CLASSES = readArrayInput("classes");
+    var DEGREES = readArrayInput("degrees");
+    var CENTRAL_DEGREE = document.getElementById("central_degree").value.trim();
+    
+    var CLASSES_DENSITY = parseFloat(document.getElementById("classes_density").value.trim());
+    var CLASSES_SKEW = parseFloat(document.getElementById("classes_skew").value.trim());
+    var CLASSES_JUMP = parseFloat(document.getElementById("classes_jump").value.trim());
+    
+    var DEGREES_DENSITY = parseFloat(document.getElementById("degrees_density").value.trim());
+    var DEGREES_SKEW = parseFloat(document.getElementById("degrees_skew").value.trim());
+    
+    var SPACING = 3;
+    
+    function getCircleColor(degreeId, classId, alpha) {
+        var classCoeff = classId/CLASSES.length;
+        var degreeCoeff = degreeId/DEGREES.length;
+        var rgb = hsvToRgb(classCoeff*0.9+degreeCoeff*0.1, degreeCoeff*0.4+0.4, degreeCoeff*0.4+0.6);
+        return "rgba("+rgb.r+","+rgb.g+","+rgb.b+","+alpha+")";
+    }
+
+    var canvas = this.__canvas = new fabric.StaticCanvas('c');
+
+    // draw central circle and label
+    if (CENTRAL_DEGREE !== "") {
+        canvas.add(
+            new fabric.Circle({left: WIDTH/2, top: HEIGHT/2, originX: 'center', originY: 'center', radius: 0.14/(DEGREES.length+1)*2*SCALE, fill: 'gray'}),
+            new fabric.Text(CENTRAL_DEGREE, {fontSize: 0.15*SCALE/CENTRAL_DEGREE.length, left: WIDTH/2, top: HEIGHT/2, textAlign:'center', originX: 'center', originY: 'center'})
+        );
+    }
+    
+    var connectivityGraph = generateGraph({
+        classesNumber: CLASSES.length,
+        primaryClasses: [],
+        primaryClassesConnectionSkew: CLASSES_SKEW,
+        classesConnectionDensity: CLASSES_DENSITY,
+        classesInterhops: CLASSES_JUMP,
+        degreesNumber: DEGREES.length,
+        primaryDegrees: [],
+        primaryDegreesConnectionSkew: DEGREES_SKEW,
+        degreesConnectionDensity: DEGREES_DENSITY
+    });
+    console.log(connectivityGraph);
+    
+    // draw shadow connections
+    for (var degreeId = 0; degreeId < DEGREES.length; degreeId++) {
+        var radius = (degreeId+1.25)/(DEGREES.length*SPACING)*SCALE;
+        canvas.add(
+            new fabric.Circle({radius: radius, fill: 'rgba(0,0,0,0)', strokeWidth: 1, stroke: 'rgba(0,0,0,0.1)', left: WIDTH/2, top: HEIGHT/2, originX: 'center', originY: 'center'})
+        );
+    }
+    
+    // draw degrees connections
+    for (var classId = 0; classId < connectivityGraph.degreesConnectivityMatrix.length; classId++) {
+        var degreesConnectivityMatrix = connectivityGraph.degreesConnectivityMatrix[classId];
+        for (var degreeId = 0; degreeId < degreesConnectivityMatrix.length; degreeId++) {
+            var connections = degreesConnectivityMatrix[degreeId];
+            var angle = classId/CLASSES.length*2*Math.PI - Math.PI/2; // radians
+            for (connectionId = 0; connectionId < connections.length; connectionId++) {
+                var startRadius = (degreeId+1.25)/(DEGREES.length*SPACING)*SCALE;
+                var endRadius = (connections[connectionId]+1.25)/(DEGREES.length*SPACING)*SCALE;
+                console.log(getCircleColor(connections[connectionId], classId, 100));
+                canvas.add(
+                    new fabric.Line([startRadius*Math.cos(angle) + WIDTH/2, startRadius*Math.sin(angle) + HEIGHT/2, endRadius*Math.cos(angle) + WIDTH/2, endRadius*Math.sin(angle) + HEIGHT/2], {strokeWidth: 4, stroke: getCircleColor(degreeId, classId, 100)})
+                );
+            }
+        }
+    }
+    
+    // draw circles
+    for (var classId = 0; classId < CLASSES.length; classId++) {
+        var angle = classId/CLASSES.length*2*Math.PI - Math.PI/2; // radians
+        for (var degreeId = 0; degreeId < DEGREES.length; degreeId++) {
+            var radius = (degreeId+1.25)/(DEGREES.length*SPACING)*SCALE;
+            canvas.add(
+                new fabric.Circle({radius: 0.08/(DEGREES.length+1)*2*SCALE, fill: getCircleColor(degreeId, classId, 100), left: WIDTH/2 + radius*Math.cos(angle), top: HEIGHT/2 + radius*Math.sin(angle), originX: 'center', originY: 'center'}),
+            );
+        }
+    }
+    
+    // draw classes connections
+    for (var classId = 0; classId < connectivityGraph.classesConnectivityMatrix.length; classId++) {
+        var classesConnectivityMatrix = connectivityGraph.classesConnectivityMatrix[classId];
+        for (var degreeId = 0; degreeId < classesConnectivityMatrix.length; degreeId++) {
+            var connections = classesConnectivityMatrix[degreeId];
+            var radius = (degreeId+1.25)/(DEGREES.length*SPACING)*SCALE;
+            for (connectionId = 0; connectionId < connections.length; connectionId++) {
+                var startAngle = classId/CLASSES.length*2*Math.PI - Math.PI/2; // radians
+                var endAngle = connections[connectionId]/CLASSES.length*2*Math.PI - Math.PI/2; // radians
+                var radiusShift = connectionId*4;
+                if (radiusShift % 2 == 0) {
+                    radiusShift = -radiusShift;
+                }
+                canvas.add(
+                    new fabric.Circle({startAngle: startAngle, endAngle: endAngle, radius: radius+radiusShift, fill: 'rgba(0,0,0,0)', strokeWidth: 2, stroke: getCircleColor(degreeId, classId, 100), left: WIDTH/2, top: HEIGHT/2, originX: 'center', originY: 'center'}),
+                    new fabric.Circle({startAngle: startAngle, endAngle: endAngle, radius: radius+radiusShift, fill: 'rgba(0,0,0,0)', strokeWidth: 3, strokeDashArray: [5, 5], stroke: getCircleColor(degreeId, connections[connectionId], 100), left: WIDTH/2, top: HEIGHT/2, originX: 'center', originY: 'center'})
+                );
+            }
+        }
+    }
+    
+    // draw circles again, but with opacity
+    for (var classId = 0; classId < CLASSES.length; classId++) {
+        var angle = classId/CLASSES.length*2*Math.PI - Math.PI/2; // radians
+        for (var degreeId = 0; degreeId < DEGREES.length; degreeId++) {
+            var radius = (degreeId+1.25)/(DEGREES.length*SPACING)*SCALE;
+            canvas.add(
+                new fabric.Circle({radius: 0.08/(DEGREES.length+1)*2*SCALE, fill: getCircleColor(degreeId, classId, 0.75), left: WIDTH/2 + radius*Math.cos(angle), top: HEIGHT/2 + radius*Math.sin(angle), originX: 'center', originY: 'center'}),
+            );
+        }
+    }
+    
+    // draw classes labels
+    for (var classId = 0; classId < CLASSES.length; classId++) {
+        var angle = classId/(CLASSES.length)*2*Math.PI - Math.PI/2; // radians
+        var radius = (DEGREES.length-1+2.25)/(DEGREES.length*SPACING)*SCALE;
+        var label = CLASSES[classId];
+        var fontWeight = 'normal';
+        var underline = false;
+        if (label.charAt(0) == '*') {
+            fontWeight = 'bold';
+            label = label.substring(1);
+            underline = true;
+        }
+        canvas.add(
+            new fabric.Text(label, {fontWeight: fontWeight, underline: underline, fontSize: 0.04*SCALE, left: WIDTH/2 + radius*Math.cos(angle), top: HEIGHT/2 + radius*Math.sin(angle), textAlign:'center', originX: 'center', originY: 'center'})
+        );
+    }
+    
+    // draw degrees labels
+    for (var degreeId = 0; degreeId < DEGREES.length; degreeId++) {
+        var radius = (degreeId+1.25)/(DEGREES.length*SPACING)*SCALE;
+        var angle = 2*Math.PI/CLASSES.length/2 - Math.PI/2; // radians
+        var label = DEGREES[degreeId];
+        var fontWeight = 'normal';
+        var underline = false;
+        if (label.charAt(0) == '*') {
+            fontWeight = 'bold';
+            label = label.substring(1);
+            underline = true;
+        }
+        canvas.add(
+            new fabric.Text(label, {fontWeight: fontWeight, underline: underline, fontSize: 0.05*SCALE/(DEGREES.length+CLASSES.length)*SPACING*2, left: WIDTH/2 + radius*Math.cos(angle), top: HEIGHT/2 + radius*Math.sin(angle), textAlign:'center', originX: 'center', originY: 'center'})
+        );
+    }
+}
+draw();
+</script>
+
+</body>
+</html>
